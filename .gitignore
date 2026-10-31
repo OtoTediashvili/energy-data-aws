@@ -1,0 +1,31 @@
+# Terraform: state lives in S3; local files only cache it or hold secrets.
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Secrets: never commit
+.env
+*.pem
+*.key
+
+# Data stays in S3
+data/
+
+# Editors / OS / assistants
+.vscode/
+.idea/
+.DS_Store
+CLAUDE.md

@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only: this workflow checks code, it deploys nothing.
+permissions:
+  contents: read
+
+# Runners and tools are pinned, not "latest", so an upgrade is a commit here
+# rather than a surprise.
+env:
+  TERRAFORM_VERSION: "1.17.1"
+  CHECKOV_VERSION: "3.4.0"
+  UV_VERSION: "0.12.24"
+  GITLEAKS_VERSION: "8.23.3"
+
+jobs:
+  terraform:
+    name: Terraform format and validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Format
+        run: terraform fmt -recursive -check -diff infra
+
+      # -backend=false: providers only, no state, no AWS credentials.
+      - name: Validate the bootstrap stack
+        run: |
+          terraform -chdir=infra/bootstrap init -backend=false -input=false
+          terraform -chdir=infra/bootstrap validate
+
+      - name: Validate the main stack
+        run: |
+          terraform -chdir=infra init -backend=false -input=false
+          terraform -chdir=infra validate
+
+  scan:
+    name: Security checks (checkov)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: checkov
+        run: uvx --from "checkov==${CHECKOV_VERSION}" checkov --config-file .checkov.yaml
+
+  shell:
+    name: Shell scripts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # full history: a secret deleted later is still leaked
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan full git history
+        run: gitleaks git . --redact --verbose --no-banner

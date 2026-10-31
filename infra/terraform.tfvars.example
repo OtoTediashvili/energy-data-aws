@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+alert_email = "you@example.com"
+
+# Optional, with their defaults:
+# region                  = "eu-central-1"
+# monthly_budget_usd      = 5
+# athena_scan_limit_bytes = 1073741824

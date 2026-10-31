@@ -1,0 +1,29 @@
+# checkov: static security checks on the Terraform, in CI and `make scan`.
+#
+# Skipped on purpose, each for a reason that would be wrong elsewhere:
+#
+# CKV_AWS_145  KMS keys for bucket encryption. Both buckets are encrypted at
+#              rest with S3-managed keys. A customer-managed KMS key costs
+#              $1 a month, more than everything else here together, and
+#              protects public market data from no one.
+# CKV_AWS_18   Server access logging. It needs a second bucket of logs that
+#              grows forever. One person uses this account; CloudTrail
+#              already records who changed a bucket's configuration.
+# CKV_AWS_144  Cross-region replication. Landing can be fetched again from
+#              ENTSO-E, and everything else is rebuilt from landing, so a
+#              second copy in another region doubles storage for nothing.
+# CKV2_AWS_62  Event notifications. Nothing reacts to objects arriving; the
+#              state machine decides what runs next.
+
+framework:
+  - terraform
+directory:
+  - infra
+skip-check:
+  - CKV_AWS_145
+  - CKV_AWS_18
+  - CKV_AWS_144
+  - CKV2_AWS_62
+skip-download: true
+compact: true
+quiet: true
