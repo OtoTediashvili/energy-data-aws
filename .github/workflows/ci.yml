@@ -23,6 +23,48 @@ env:
   GITLEAKS_VERSION: "8.23.3"
 
 jobs:
+  python:
+    name: Lint, types, tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install from the lockfile
+        run: uv sync --locked
+
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests
+
+      - name: Mypy (strict)
+        run: uv run mypy
+
+      - name: Pytest
+        run: uv run pytest
+
+  image:
+    name: Functions image builds
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # The same command scripts/image.sh runs, without the push.
+      - name: Build
+        run: docker build --platform linux/amd64 --provenance=false --tag energy-functions:ci .
+
+      - name: Handlers import inside the image
+        run: |
+          docker run --rm --entrypoint python3 energy-functions:ci \
+            -c "import energy.handlers; print('handlers import')"
+
   terraform:
     name: Terraform format and validate
     runs-on: ubuntu-24.04

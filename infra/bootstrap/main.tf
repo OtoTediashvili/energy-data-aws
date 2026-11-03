@@ -1,8 +1,13 @@
-# The bucket that holds the main stack's Terraform state.
+# What has to exist before the main stack can be planned:
 #
-# Applied once, by `make bootstrap`, with local state (terraform.tfstate in
-# this folder, gitignored): a state bucket can't keep its own state before it
-# exists. Everything else keeps its state in this bucket, locked with S3's
+# - the bucket that holds the main stack's Terraform state, and
+# - the container registry for the functions' image. A Lambda function can
+#   only be created from an image that is already in the registry, so the
+#   registry comes first, then `make image` pushes, then the main stack.
+#
+# Applied by `make bootstrap`, with local state (terraform.tfstate in this
+# folder, gitignored): a state bucket can't keep its own state before it
+# exists. Everything else keeps its state in that bucket, locked with S3's
 # native lock files, so there is no DynamoDB table to pay for.
 
 terraform {
@@ -100,6 +105,42 @@ resource "aws_s3_bucket_policy" "state" {
   depends_on = [aws_s3_bucket_public_access_block.state]
 }
 
+# The functions' image. Tags are immutable and name the image's content
+# (scripts/image.sh), so a tag always means the same code. Every push is
+# scanned for known vulnerabilities, and only the newest ten images are kept.
+resource "aws_ecr_repository" "functions" {
+  name                 = "energy-functions"
+  image_tag_mutability = "IMMUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "functions" {
+  repository = aws_ecr_repository.functions.name
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the newest ten images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = { type = "expire" }
+    }]
+  })
+}
+
 output "state_bucket" {
   value = aws_s3_bucket.state.bucket
+}
+
+output "functions_repository" {
+  value = aws_ecr_repository.functions.repository_url
 }

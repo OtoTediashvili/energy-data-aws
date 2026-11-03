@@ -1,0 +1,6 @@
+# Only what the image needs: the lockfile and the code.
+*
+!pyproject.toml
+!uv.lock
+!src/
+**/__pycache__

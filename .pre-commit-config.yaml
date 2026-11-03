@@ -1,12 +1,16 @@
 # Hooks that run on every `git commit`. terraform runs from your PATH, the
-# same binary `make validate` uses.
+# same binary `make validate` uses. ruff and mypy run from the project's
+# .venv (`make install`), the same versions `make check` and CI use.
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      # ENTSO-E documents are kept byte for byte. Never rewrite them.
       - id: trailing-whitespace
+        exclude: ^tests/fixtures/
       - id: end-of-file-fixer
+        exclude: ^tests/fixtures/
       - id: check-yaml
       - id: check-merge-conflict
       - id: check-added-large-files
@@ -20,6 +24,22 @@ repos:
         entry: terraform fmt
         language: system
         files: \.tf$
+      - id: ruff
+        name: ruff
+        entry: .venv/bin/ruff check --fix
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format
+        entry: .venv/bin/ruff format
+        language: system
+        types_or: [python, pyi]
+      - id: mypy
+        name: mypy (project venv, same as make check)
+        entry: .venv/bin/mypy
+        language: system
+        types: [python]
+        pass_filenames: false
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.23.3

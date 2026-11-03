@@ -2,18 +2,41 @@
 #
 # Skipped on purpose, each for a reason that would be wrong elsewhere:
 #
-# CKV_AWS_145  KMS keys for bucket encryption. Both buckets are encrypted at
-#              rest with S3-managed keys. A customer-managed KMS key costs
-#              $1 a month, more than everything else here together, and
-#              protects public market data from no one.
-# CKV_AWS_18   Server access logging. It needs a second bucket of logs that
-#              grows forever. One person uses this account; CloudTrail
-#              already records who changed a bucket's configuration.
-# CKV_AWS_144  Cross-region replication. Landing can be fetched again from
-#              ENTSO-E, and everything else is rebuilt from landing, so a
-#              second copy in another region doubles storage for nothing.
-# CKV2_AWS_62  Event notifications. Nothing reacts to objects arriving; the
-#              state machine decides what runs next.
+# Customer-managed KMS keys, instead of the AWS-managed encryption every one
+# of these already has. A key costs $1 a month, more than everything else
+# here together, and protects public market data from no one. The one
+# secret, the ENTSO-E token, is a SecureString in SSM.
+#   CKV_AWS_145  S3 buckets
+#   CKV_AWS_136  the ECR repository
+#   CKV_AWS_158  CloudWatch log groups
+#   CKV_AWS_173  Lambda environment variables (a bucket name, a parameter
+#                name and a flag; no secrets)
+#
+# S3:
+#   CKV_AWS_18   Server access logging. It needs a second bucket of logs that
+#                grows forever. One person uses this account; CloudTrail
+#                already records who changed a bucket's configuration.
+#   CKV_AWS_144  Cross-region replication. Landing can be fetched again from
+#                ENTSO-E, and everything else is rebuilt from landing, so a
+#                second copy in another region doubles storage for nothing.
+#   CKV2_AWS_62  Event notifications. Nothing reacts to objects arriving; the
+#                state machine decides what runs next.
+#
+# Lambda:
+#   CKV_AWS_117  Inside a VPC. The functions call ENTSO-E on the internet; from
+#                a VPC that takes a NAT gateway, about $35 a month.
+#   CKV_AWS_116  Dead-letter queue. It only applies to asynchronous calls; the
+#                state machine calls the functions synchronously, retries them
+#                and reports failures.
+#   CKV_AWS_115  Reserved concurrency. A new account's limit is 10 in total,
+#                which leaves nothing to reserve; the state machine caps how
+#                many run at once.
+#   CKV_AWS_272  Code signing. Lambda supports it for zip packages only; these
+#                functions run a container image pinned by its digest.
+#
+# CloudWatch:
+#   CKV_AWS_338  A year of logs. Thirty days covers any investigation of a
+#                daily job, and the logs are the only cost that grows with time.
 
 framework:
   - terraform
@@ -21,9 +44,17 @@ directory:
   - infra
 skip-check:
   - CKV_AWS_145
+  - CKV_AWS_136
+  - CKV_AWS_158
+  - CKV_AWS_173
   - CKV_AWS_18
   - CKV_AWS_144
   - CKV2_AWS_62
+  - CKV_AWS_117
+  - CKV_AWS_116
+  - CKV_AWS_115
+  - CKV_AWS_272
+  - CKV_AWS_338
 skip-download: true
 compact: true
 quiet: true
