@@ -12,9 +12,12 @@ export AWS_REGION := $(REGION)
 
 TF := terraform -chdir=infra
 CHECKOV_VERSION := 3.4.0
+DBT := uv run dbt
+DBT_DIRS := --project-dir dbt --profiles-dir dbt
+LAKE_BUCKET = energy-lake-$$(aws sts get-caller-identity --query Account --output text)
 
 .PHONY: help install check login whoami bootstrap image init plan apply fmt validate scan \
-	smoke ingest raw
+	smoke ingest raw dbt-parse dbt-build prices
 
 help: ## List the commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -30,6 +33,9 @@ check: ## Lint, format check, types and tests: what CI runs on the Python
 	uv run ruff format --check src tests
 	uv run mypy
 	uv run pytest
+
+dbt-parse: ## Check the dbt project (models, tests, configs) without touching AWS
+	ENERGY_LAKE_BUCKET=not-used $(DBT) parse $(DBT_DIRS)
 
 # ------------------------------------------------------------------- AWS
 
@@ -77,6 +83,12 @@ smoke: ## Run one query through the Athena workgroup
 
 ingest: ## Extract and parse one zone's day: make ingest ZONE=NL DATE=2026-10-30
 	scripts/ingest.sh $(ZONE) $(DATE)
+
+dbt-build: ## Build and test the models in Athena: seed, staging view, Iceberg marts
+	ENERGY_LAKE_BUCKET=$(LAKE_BUCKET) $(DBT) build $(DBT_DIRS)
+
+prices: ## Daily average prices per zone, from the marts
+	scripts/athena_query.sh "SELECT f.market_date, z.country_code AS zone, f.avg_price_eur_mwh AS avg_price, f.min_price_eur_mwh AS min_price, f.max_price_eur_mwh AS max_price, f.covered_minutes FROM energy_marts.fct_daily_prices AS f JOIN energy_marts.dim_bidding_zone AS z ON f.bidding_zone_sk = z.bidding_zone_sk ORDER BY 1, 2"
 
 raw: ## Rows per zone and day in energy_raw.day_ahead_prices
 	scripts/athena_query.sh "SELECT zone, _logical_date, count(*) AS rows, min(price_eur_mwh) AS min_price, max(price_eur_mwh) AS max_price FROM energy_raw.day_ahead_prices GROUP BY 1, 2 ORDER BY 2, 1"

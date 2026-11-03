@@ -24,6 +24,12 @@ __pycache__/
 # Data stays in S3
 data/
 
+# dbt's build output
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml
+
 # Editors / OS / assistants
 .vscode/
 .idea/

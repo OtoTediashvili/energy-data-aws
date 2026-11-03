@@ -44,7 +44,7 @@ from energy.layout import landing_key, parsed_key
 from energy.logging_config import get_logger
 
 if TYPE_CHECKING:
-    from types_boto3_s3 import S3Client
+    from mypy_boto3_s3 import S3Client
 
 log = get_logger(__name__)
 

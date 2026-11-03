@@ -1,0 +1,38 @@
+name: energy
+version: "1.0.0"
+config-version: 2
+profile: energy
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "logs"]
+
+# Each layer is one Glue database, created by Terraform (infra/catalog.tf).
+# generate_schema_name uses these names as they are.
+models:
+  energy:
+    staging:
+      +schema: energy_staging
+      +materialized: view
+    marts:
+      +schema: energy_marts
+      +materialized: table
+      # Iceberg: atomic writes, MERGE for the incremental fact table, and
+      # files Athena manages itself.
+      +table_type: iceberg
+
+seeds:
+  energy:
+    +schema: energy_raw
+    bidding_zones:
+      +column_types:
+        bidding_zone_eic: varchar
+        bidding_zone_name: varchar
+        country_code: varchar
+
+vars:
+  # The day-ahead auction defines days in Central European time, for every zone.
+  market_timezone: "Europe/Brussels"

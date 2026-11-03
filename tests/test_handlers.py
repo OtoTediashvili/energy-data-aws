@@ -18,8 +18,8 @@ from energy.secrets import entsoe_token
 from tests.conftest import BUCKET, FIXTURES, SOURCE, TOKEN, TOKEN_PARAMETER
 
 if TYPE_CHECKING:
-    from types_boto3_s3 import S3Client
-    from types_boto3_ssm import SSMClient
+    from mypy_boto3_s3 import S3Client
+    from mypy_boto3_ssm import SSMClient
 
 EVENT = {"zone": "NL", "eic": "10YNL----------L", "logical_date": "2026-09-24"}
 DOCUMENT = (FIXTURES / "entsoe_a44_nl_20260924.xml").read_bytes()

@@ -19,8 +19,8 @@ from energy import secrets
 from energy.config import Settings
 
 if TYPE_CHECKING:
-    from types_boto3_s3 import S3Client
-    from types_boto3_ssm import SSMClient
+    from mypy_boto3_s3 import S3Client
+    from mypy_boto3_ssm import SSMClient
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BUCKET = "energy-lake-test"

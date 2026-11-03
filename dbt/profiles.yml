@@ -1,0 +1,19 @@
+# One target: Athena, through the project's workgroup, which decides where
+# query results go and how much one query may scan. No credentials here:
+# dbt uses the same AWS credentials as the CLI (the `energy` profile on your
+# laptop, the function's role in Lambda). `make dbt-build` sets the bucket.
+energy:
+  target: athena
+  outputs:
+    athena:
+      type: athena
+      region_name: "{{ env_var('AWS_REGION', 'eu-central-1') }}"
+      database: awsdatacatalog
+      schema: energy_staging
+      work_group: energy
+      s3_staging_dir: "s3://{{ env_var('ENERGY_LAKE_BUCKET') }}/athena-results/"
+      # Tables dbt writes live under warehouse/<database>/<table>/<unique id>/.
+      s3_data_dir: "s3://{{ env_var('ENERGY_LAKE_BUCKET') }}/warehouse/"
+      s3_data_naming: schema_table_unique
+      threads: 4
+      num_retries: 2

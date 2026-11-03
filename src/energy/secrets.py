@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from pydantic import SecretStr
 
 if TYPE_CHECKING:
-    from types_boto3_ssm import SSMClient
+    from mypy_boto3_ssm import SSMClient
 
 _cache: dict[str, SecretStr] = {}
 

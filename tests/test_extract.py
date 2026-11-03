@@ -29,7 +29,7 @@ from energy.layout import landing_key
 from tests.conftest import BUCKET, FIXTURES, SOURCE
 
 if TYPE_CHECKING:
-    from types_boto3_s3 import S3Client
+    from mypy_boto3_s3 import S3Client
 
 DAY = date(2026, 9, 24)
 NL = "10YNL----------L"

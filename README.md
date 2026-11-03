@@ -33,8 +33,8 @@ flowchart LR
 | Step | What | Status |
 |---|---|---|
 | 1 | Foundation: state bucket, data lake bucket, Glue databases, Athena workgroup with a scan limit, budget alert | done |
-| 2 | Ingestion: extract and parse as Lambda functions, the ENTSO-E token from SSM, the raw table | ready to apply |
-| 3 | dbt on Athena: staging, the zone dimension and daily prices as Iceberg tables, with the tests | |
+| 2 | Ingestion: extract and parse as Lambda functions, the ENTSO-E token from SSM, the raw table | done |
+| 3 | dbt on Athena: staging, the zone dimension and daily prices as Iceberg tables, with the tests | ready to run |
 | 4 | Orchestration: Step Functions on a schedule, failure alerts, backfill from project 1's landing zone | |
 | 5 | CI/CD: GitHub Actions deploys through OIDC, no stored keys | |
 | 6 | What it costs, what broke, what I'd change | |
@@ -68,7 +68,32 @@ Two Lambda functions from one container image, the same split as project
 
 The zones live in one place, `dbt/seeds/bidding_zones.csv`: the Glue
 table's partitions are generated from it, and so will the state machine's
-branches and dbt's dimension be.
+branches be. dbt loads it as the dimension's reference.
+
+## Transformation
+
+Project 1's dbt project, moved from DuckDB to Athena: the same models and
+the same 32 tests, in Athena's SQL (Trino).
+
+| Model | In | Built as |
+|---|---|---|
+| `stg_day_ahead_prices` | `energy_staging` | a view: the main auction only, one row per zone and market time unit (highest revision, then latest delivery), with its market day in Brussels time |
+| `dim_bidding_zone` | `energy_marts` | an Iceberg table: one row per zone, named from the seed |
+| `fct_daily_prices` | `energy_marts` | an incremental Iceberg table, one row per zone and market day, merged |
+
+- **Iceberg, merged by arrival time.** Each build finds every market day
+  that received a delivery since the table was last built, whatever its
+  date, and rebuilds that day whole with one atomic `MERGE`. Project 1 did
+  the same with delete+insert in DuckDB; its reconciliation test
+  (`assert_fct_matches_staging`) still guards it.
+- **Market days in Brussels time,** by a zone-aware conversion in one macro
+  (`market_date`), used by the model and by the test that checks it.
+- **No packages to download.** The two generic tests and the surrogate key
+  that came from dbt_utils are small macros here, so building the transform
+  image later needs nothing from the internet.
+- **Tested where it runs.** `dbt build` runs the 4 unit tests and 28 data
+  tests in Athena, each query held to the workgroup's scan limit. CI parses
+  the project without AWS; from step 5 it will build it too.
 
 ## Setup
 
@@ -115,6 +140,8 @@ Once per machine and account. You need the AWS CLI 2.32 or newer, Terraform
    make smoke          # a query through Athena, end to end
    make ingest ZONE=NL DATE=2026-10-30
    make raw            # rows per zone and day in the raw table
+   make dbt-build      # staging, dimension and fact table in Athena, with every test
+   make prices         # daily prices per zone, from the marts
    ```
 
 ## Guard rails
@@ -144,3 +171,5 @@ Once per machine and account. You need the AWS CLI 2.32 or newer, Terraform
 | `make smoke` | One query through the Athena workgroup |
 | `make ingest ZONE=NL DATE=…` | Extract and parse one zone's day with the deployed functions |
 | `make raw` | Rows per zone and day in the raw table |
+| `make dbt-parse` / `dbt-build` | Check the dbt project offline / build and test it in Athena |
+| `make prices` | Daily prices per zone, from the marts |

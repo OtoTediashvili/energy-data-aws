@@ -1,0 +1,27 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      The parsed files in S3, as Glue tables. Terraform defines them
+      (infra/raw_table.tf); dbt reads them and never writes them.
+    schema: energy_raw
+    tables:
+      - name: day_ahead_prices
+        description: >
+          One row per market time unit per delivery: one parsed file per zone
+          and run day. A delivery log, not a deduplicated table: overlapping
+          runs and republished revisions both add rows, and ENTSO-E sends some
+          series twice within one document (Belgium, the Czech Republic,
+          Austria's main auction).
+        columns:
+          - name: auction_sequence
+            description: >
+              Which day-ahead auction a row belongs to: 1 is the main European
+              auction (SDAC), 2 a second one (EXAA, for Austria). Empty for
+              zones with a single auction.
+        config:
+          loaded_at_field: _ingested_at
+          freshness:
+            warn_after: {count: 36, period: hour}
+            error_after: {count: 72, period: hour}

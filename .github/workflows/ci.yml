@@ -50,6 +50,13 @@ jobs:
       - name: Pytest
         run: uv run pytest
 
+      # Models, tests and configs, checked without a warehouse. They run
+      # against Athena in `make dbt-build`.
+      - name: dbt parse
+        run: uv run dbt parse --project-dir dbt --profiles-dir dbt
+        env:
+          ENERGY_LAKE_BUCKET: not-used
+
   image:
     name: Functions image builds
     runs-on: ubuntu-24.04

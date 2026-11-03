@@ -11,7 +11,7 @@ FROM public.ecr.aws/lambda/python:3.12
 # Dependencies first, from the lockfile, so a code change doesn't reinstall them.
 COPY pyproject.toml uv.lock /tmp/build/
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
-    uv export --directory /tmp/build --frozen --no-dev --no-emit-project -o /tmp/build/requirements.txt \
+    uv export --directory /tmp/build --frozen --no-default-groups --no-emit-project -o /tmp/build/requirements.txt \
     && uv pip install --no-cache --python /var/lang/bin/python3 \
         --target "${LAMBDA_TASK_ROOT}" -r /tmp/build/requirements.txt \
     && rm -rf /tmp/build

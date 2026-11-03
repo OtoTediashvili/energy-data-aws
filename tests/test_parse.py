@@ -36,7 +36,7 @@ from energy.parse import (
 from tests.conftest import BUCKET
 
 if TYPE_CHECKING:
-    from types_boto3_s3 import S3Client
+    from mypy_boto3_s3 import S3Client
 
 FIXTURE = Path(__file__).parent / "fixtures" / "entsoe_a44_nl_20260924.xml"
 TWO_AUCTIONS = Path(__file__).parent / "fixtures" / "entsoe_a44_at_two_auctions_20250930.xml"
