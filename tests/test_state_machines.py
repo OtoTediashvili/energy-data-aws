@@ -52,13 +52,20 @@ FILE_MAP = BACKFILL["States"]["Every landed file"]
 
 
 def evaluate(expression: str, states: dict[str, Any], **variables: Any) -> Any:
-    """One {% ... %} expression, with $states and the run's variables bound."""
+    """One {% ... %} expression, with $states and the run's variables bound.
+
+    Step Functions fails the run (States.QueryEvaluationError) when an
+    expression returns nothing, e.g. a filter that matches no item; the
+    library returns None instead, so that is refused here too.
+    """
     assert expression.startswith("{%") and expression.endswith("%}"), expression
     compiled = jsonata.Jsonata(expression[2:-2].strip())
     compiled.assign("states", states)
     for name, value in variables.items():
         compiled.assign(name, value)
-    return compiled.evaluate(None)
+    result = compiled.evaluate(None)
+    assert result is not None, f"returned nothing, which fails the run in AWS: {expression}"
+    return result
 
 
 def all_states(states: dict[str, Any]) -> Iterator[tuple[dict[str, Any], str, dict[str, Any]]]:
@@ -172,6 +179,8 @@ def test_a_failed_zone_is_recorded_not_raised() -> None:
 def zones_failed(deliveries: list[dict[str, Any]]) -> tuple[bool, str]:
     choice = DAILY["States"]["Did every zone arrive?"]["Choices"][0]
     failed = evaluate(choice["Condition"], {}, deliveries=deliveries)
+    if not failed:  # the Fail state, and so its Cause, is only reached when a zone failed
+        return failed, ""
     cause = evaluate(DAILY["States"]["Some zones failed"]["Cause"], {}, deliveries=deliveries)
     return failed, cause
 
@@ -228,6 +237,8 @@ def files_failed(results: list[dict[str, Any]]) -> tuple[bool, str]:
     failures = evaluate(assign["failures"], {"result": results})
     choice = BACKFILL["States"]["Did every file parse?"]["Choices"][0]
     failed = evaluate(choice["Condition"], {}, failures=failures)
+    if not failed:  # the Fail state, and so its Cause, is only reached when a file failed
+        return failed, ""
     cause = evaluate(
         BACKFILL["States"]["Some files failed"]["Cause"], {}, failures=failures, files=files
     )
@@ -251,3 +262,14 @@ def test_many_bad_files_are_counted_and_the_first_ten_named() -> None:
 def test_a_clean_backfill_succeeds() -> None:
     failed, _ = files_failed([{"rows": 192}] * 3)
     assert failed is False
+
+
+def test_a_clean_backfill_records_no_failures_as_an_empty_list() -> None:
+    failures = evaluate(FILE_MAP["Assign"]["failures"], {"result": [{"rows": 192}] * 3})
+    assert failures == []
+
+
+def test_a_single_bad_file_is_still_a_list_of_failures() -> None:
+    results = [{"rows": 192}, {"key": "landing/x.xml", "error": "EntsoeParseError"}]
+    failures = evaluate(FILE_MAP["Assign"]["failures"], {"result": results})
+    assert failures == [{"key": "landing/x.xml", "error": "EntsoeParseError"}]

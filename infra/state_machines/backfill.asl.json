@@ -76,7 +76,7 @@
       },
       "Assign": {
         "files": "{% $count($states.result) %}",
-        "failures": "{% $states.result[$exists(error)] %}"
+        "failures": "{% $append([], $states.result[$exists(error)]) %}"
       },
       "Next": "Transform"
     },
