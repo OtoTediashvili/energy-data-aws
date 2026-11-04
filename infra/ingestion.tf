@@ -4,9 +4,9 @@
 #   energy-parse    landing/ -> parsed/   that XML as typed Parquet
 #
 # Same split as project 1's extract and parse tasks: landing is the source of
-# truth, and a parser fix is deployed and run again over it without
-# downloading anything. The state machine (step 4) will run them per zone;
-# until then, scripts/ingest.sh runs them by hand.
+# truth, and a parser fix is deployed and run again over it (the backfill
+# state machine) without downloading anything. The daily state machine runs
+# them per zone; scripts/ingest.sh runs one zone's day by hand.
 
 locals {
   functions = {
@@ -26,8 +26,8 @@ locals {
   }
 }
 
-# The image is pushed by `make image` before the plan; the digest pins each
-# function to exactly that image.
+# The images are pushed by `make image` before the plan; the digest pins each
+# function to exactly that image. transform.tf uses the same repository.
 data "aws_ecr_repository" "functions" {
   name = "energy-functions"
 }

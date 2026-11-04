@@ -14,8 +14,21 @@ output "glue_databases" {
 }
 
 output "functions" {
-  description = "The ingestion functions, by step."
-  value       = { for step, fn in aws_lambda_function.ingest : step => fn.function_name }
+  description = "The functions, by step."
+  value = merge(
+    { for step, fn in aws_lambda_function.ingest : step => fn.function_name },
+    { transform = aws_lambda_function.transform.function_name },
+  )
+}
+
+output "state_machines" {
+  description = "The daily run and the backfill: `make run`, `make backfill`."
+  value       = { for name, machine in aws_sfn_state_machine.pipeline : name => machine.name }
+}
+
+output "daily_schedule" {
+  description = "When the daily run starts (Brussels time)."
+  value       = aws_scheduler_schedule.daily.schedule_expression
 }
 
 output "raw_table" {

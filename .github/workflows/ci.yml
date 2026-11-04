@@ -58,19 +58,38 @@ jobs:
           ENERGY_LAKE_BUCKET: not-used
 
   image:
-    name: Functions image builds
+    name: Images build
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
-      # The same command scripts/image.sh runs, without the push.
-      - name: Build
-        run: docker build --platform linux/amd64 --provenance=false --tag energy-functions:ci .
+      # The same builds scripts/image.sh runs, without the push.
+      - name: Build the ingest image
+        run: docker build --platform linux/amd64 --provenance=false --target ingest --tag energy-ingest:ci .
 
-      - name: Handlers import inside the image
+      - name: Build the transform image
+        run: docker build --platform linux/amd64 --provenance=false --target transform --tag energy-transform:ci .
+
+      - name: The ingest image has its handlers and no dbt
         run: |
-          docker run --rm --entrypoint python3 energy-functions:ci \
-            -c "import energy.handlers; print('handlers import')"
+          docker run --rm --entrypoint python3 energy-ingest:ci -c "
+          import importlib.util, energy.handlers
+          assert importlib.util.find_spec('dbt') is None, 'dbt does not belong in the ingest image'
+          print('ingest image ok')"
+
+      # Read-only with a writable /tmp, as in Lambda: if dbt tried to write
+      # anywhere else, this would fail here instead of in the first scheduled run.
+      - name: The transform image parses the dbt project read-only
+        run: |
+          docker run --rm --read-only --tmpfs /tmp -e ENERGY_LAKE_BUCKET=not-used \
+            --entrypoint python3 energy-transform:ci -c "
+          from dbt.cli.main import dbtRunner
+          from energy.config import Settings
+          from energy.transform import dbt_args, use_thread_locks
+          use_thread_locks()
+          result = dbtRunner().invoke(dbt_args('parse', Settings()))
+          assert result.success, result.exception
+          print('transform image ok')"
 
   terraform:
     name: Terraform format and validate

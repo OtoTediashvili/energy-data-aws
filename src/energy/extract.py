@@ -47,6 +47,19 @@ class PermanentSourceError(RuntimeError):
     """ENTSO-E failed in a way that won't improve on retry."""
 
 
+class NoMatchingDataError(PermanentSourceError):
+    """ENTSO-E has nothing for this request yet (Acknowledgement reason 999).
+
+    For the daily run that usually means tomorrow's prices aren't published
+    yet: the auction can finish late. Retrying within seconds won't help, so
+    the function fails at once, and the state machine tries again minutes
+    later, matching on this class's name.
+    """
+
+
+NO_MATCHING_DATA = "999"
+
+
 def _raise_for_status(response: httpx.Response) -> None:
     if response.status_code in RETRYABLE_STATUS:
         raise TransientSourceError(f"retryable status {response.status_code}")
@@ -102,9 +115,13 @@ def reject_acknowledgement(payload: bytes) -> None:
     overwrite a good file for the same day with an error message.
     """
     if ACKNOWLEDGEMENT_MARKER in payload[:1024]:
-        raise PermanentSourceError(
-            f"ENTSO-E returned an Acknowledgement, not data: {acknowledgement_reason(payload)}"
+        reason = acknowledgement_reason(payload)
+        error = (
+            NoMatchingDataError
+            if reason.startswith(f"{NO_MATCHING_DATA}:")
+            else PermanentSourceError
         )
+        raise error(f"ENTSO-E returned an Acknowledgement, not data: {reason}")
 
 
 def acknowledgement_reason(payload: bytes) -> str:

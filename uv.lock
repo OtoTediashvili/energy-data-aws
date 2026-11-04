@@ -549,6 +549,7 @@ dbt = [
 ]
 dev = [
     { name = "boto3-stubs", extra = ["s3", "ssm"] },
+    { name = "jsonata-python" },
     { name = "moto", extra = ["s3", "ssm"] },
     { name = "mypy" },
     { name = "pre-commit" },
@@ -578,6 +579,7 @@ dbt = [
 ]
 dev = [
     { name = "boto3-stubs", extras = ["s3", "ssm"], specifier = ">=1.40" },
+    { name = "jsonata-python", specifier = ">=0.6" },
     { name = "moto", extras = ["s3", "ssm"], specifier = ">=5.1" },
     { name = "mypy", specifier = ">=1.18" },
     { name = "pre-commit", specifier = ">=4" },
@@ -710,6 +712,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d3/59/322338183ecda247fb5d1763a6cbe46eff7222eaeebafd9fa65d4bf5cb11/jmespath-1.1.0.tar.gz", hash = "sha256:472c87d80f36026ae83c6ddd0f1d05d4e510134ed462851fd5f754c8c3cbb88d", size = 27377, upload-time = "2026-01-22T16:35:26.279Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl", hash = "sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64", size = 20419, upload-time = "2026-01-22T16:35:24.919Z" },
+]
+
+[[package]]
+name = "jsonata-python"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/e1/a1247412b909987479acc5e376c65f975a7daf25ec37e91cc0c8ec5fa74e/jsonata_python-0.7.1.tar.gz", hash = "sha256:c3c4dd3e68d913cf079ed5374cfcc6b249fb33fedaef55b23b14c7168b797e4e", size = 87663, upload-time = "2026-10-10T03:48:51.755Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/85/1abd3677ad6c3a6ae249ed1234c0ab8dabbbca7b13d5bfd58c65acacb64f/jsonata_python-0.7.1-py3-none-any.whl", hash = "sha256:d34603578dd20add2aa0ac4562ca080d9c662f6b161298bd6254fe28247804ae", size = 87560, upload-time = "2026-10-10T03:48:49.643Z" },
 ]
 
 [[package]]

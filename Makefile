@@ -15,9 +15,11 @@ CHECKOV_VERSION := 3.4.0
 DBT := uv run dbt
 DBT_DIRS := --project-dir dbt --profiles-dir dbt
 LAKE_BUCKET = energy-lake-$$(aws sts get-caller-identity --query Account --output text)
+# Project 1's landed files, for `make backfill`.
+FROM ?= $(HOME)/projects/de-pipeline/data/landing
 
-.PHONY: help install check login whoami bootstrap image init plan apply fmt validate scan \
-	smoke ingest raw dbt-parse dbt-build prices
+.PHONY: help install check login whoami bootstrap image init sfn-check plan apply fmt validate \
+	scan smoke ingest raw dbt-parse dbt-build prices run backfill docs
 
 help: ## List the commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -49,13 +51,16 @@ bootstrap: ## The state bucket and the image registry (once, and when they chang
 	terraform -chdir=infra/bootstrap init -input=false
 	terraform -chdir=infra/bootstrap apply -input=false -var=region=$(REGION)
 
-image: ## Build the functions' image and push it to ECR (skipped if ECR has it)
+image: ## Build the two images (functions, dbt) and push them to ECR (skipped if ECR has them)
 	scripts/image.sh push
 
 init: ## Connect Terraform to its state bucket
 	$(TF) init -input=false \
 		-backend-config="bucket=energy-tfstate-$$(aws sts get-caller-identity --query Account --output text)" \
 		-backend-config="region=$(REGION)"
+
+sfn-check: ## AWS's own check of the state machine definitions (free, changes nothing)
+	scripts/check_state_machines.sh
 
 plan: ## Show what apply would change, and save that plan (run `make image` first)
 	$(TF) plan -input=false -var=region=$(REGION) -var=image_tag=$$(scripts/image.sh tag) -out=tfplan
@@ -89,6 +94,17 @@ dbt-build: ## Build and test the models in Athena: seed, staging view, Iceberg m
 
 prices: ## Daily average prices per zone, from the marts
 	scripts/athena_query.sh "SELECT f.market_date, z.country_code AS zone, f.avg_price_eur_mwh AS avg_price, f.min_price_eur_mwh AS min_price, f.max_price_eur_mwh AS max_price, f.covered_minutes FROM energy_marts.fct_daily_prices AS f JOIN energy_marts.dim_bidding_zone AS z ON f.bidding_zone_sk = z.bidding_zone_sk ORDER BY 1, 2"
+
+run: ## Run the daily pipeline now and wait: make run, or make run DATE=2026-11-02
+	scripts/run.sh daily $(DATE)
+
+backfill: ## Copy project 1's landed files (FROM=its data/landing), parse them all, rebuild
+	ENERGY_LAKE_BUCKET=$(LAKE_BUCKET) uv run python -m energy.backfill "$(FROM)"
+	scripts/run.sh backfill
+
+docs: ## dbt's docs and lineage graph on http://localhost:8080 (Ctrl+C stops it)
+	ENERGY_LAKE_BUCKET=$(LAKE_BUCKET) $(DBT) docs generate $(DBT_DIRS)
+	ENERGY_LAKE_BUCKET=$(LAKE_BUCKET) $(DBT) docs serve $(DBT_DIRS) --port 8080 --no-browser
 
 raw: ## Rows per zone and day in energy_raw.day_ahead_prices
 	scripts/athena_query.sh "SELECT zone, _logical_date, count(*) AS rows, min(price_eur_mwh) AS min_price, max(price_eur_mwh) AS max_price FROM energy_raw.day_ahead_prices GROUP BY 1, 2 ORDER BY 2, 1"

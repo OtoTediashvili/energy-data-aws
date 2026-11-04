@@ -5,8 +5,8 @@
 #   scripts/ingest.sh NL 2026-10-30
 #
 # The date is the run's UTC day; without one, today's. ENTSO-E publishes the
-# next day's prices around 11:00 UTC, and refuses a window that reaches a day
-# it hasn't published, so before then, use yesterday.
+# next day's prices around 13:00 Brussels time, and refuses a window that
+# reaches a day it hasn't published, so before then, use yesterday.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

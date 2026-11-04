@@ -20,6 +20,7 @@ from structlog.testing import capture_logs
 from energy.config import Settings
 from energy.extract import (
     TOKEN_PARAM,
+    NoMatchingDataError,
     PermanentSourceError,
     TransientSourceError,
     extract,
@@ -177,6 +178,30 @@ def test_an_acknowledgement_with_http_200_is_not_landed(s3: S3Client, settings: 
     with pytest.raises(PermanentSourceError, match="999: No matching data found"):
         extract("NL", NL, DAY, token=TOKEN, s3=s3, settings=settings)
     assert landed(s3) == []
+
+
+@respx.mock
+def test_no_matching_data_has_its_own_error_for_the_state_machine_to_wait_on(
+    s3: S3Client, settings: Settings
+) -> None:
+    """Reason 999 is what tomorrow's prices look like before they're published.
+    The state machine retries that error by name, minutes apart."""
+    respx.get(SOURCE).mock(return_value=httpx.Response(200, content=ACK))
+    with pytest.raises(NoMatchingDataError):
+        extract("NL", NL, DAY, token=TOKEN, s3=s3, settings=settings)
+
+
+@respx.mock
+def test_any_other_acknowledgement_is_not_worth_waiting_for(
+    s3: S3Client, settings: Settings
+) -> None:
+    other = ACK.replace(b"<code>999</code>", b"<code>B11</code>").replace(
+        b"No matching data found", b"Unknown bidding zone"
+    )
+    respx.get(SOURCE).mock(return_value=httpx.Response(200, content=other))
+    with pytest.raises(PermanentSourceError, match="B11: Unknown bidding zone") as caught:
+        extract("NL", NL, DAY, token=TOKEN, s3=s3, settings=settings)
+    assert not isinstance(caught.value, NoMatchingDataError)
 
 
 @respx.mock

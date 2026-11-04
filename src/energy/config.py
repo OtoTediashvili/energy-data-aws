@@ -9,6 +9,8 @@ configuration.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -25,6 +27,14 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = Field(default=30.0, gt=0)
     log_level: str = "INFO"
     log_json: bool = Field(default=False, description="JSON logs; on in Lambda")
+    dbt_project_dir: Path = Field(
+        default=Path("/var/task/dbt_project"),
+        description="The dbt project, inside the transform image",
+    )
+    dbt_work_dir: Path = Field(
+        default=Path("/tmp/dbt"),  # Lambda's only writable place
+        description="Where dbt writes its target/ and logs/",
+    )
 
     def bucket(self) -> str:
         """The lake bucket, or a clear error if the function wasn't given one."""

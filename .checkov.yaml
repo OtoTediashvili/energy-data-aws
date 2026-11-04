@@ -11,6 +11,11 @@
 #   CKV_AWS_158  CloudWatch log groups
 #   CKV_AWS_173  Lambda environment variables (a bucket name, a parameter
 #                name and a flag; no secrets)
+#   CKV_AWS_297  the daily schedule (its input is one placeholder)
+#   CKV_AWS_26   the alerts topic. Here there is no AWS-managed option: SNS's
+#                own key can't be opened to EventBridge, so encryption would
+#                mean a key of our own, to protect a run's name and an error
+#                name.
 #
 # S3:
 #   CKV_AWS_18   Server access logging. It needs a second bucket of logs that
@@ -47,6 +52,8 @@ skip-check:
   - CKV_AWS_136
   - CKV_AWS_158
   - CKV_AWS_173
+  - CKV_AWS_297
+  - CKV_AWS_26
   - CKV_AWS_18
   - CKV_AWS_144
   - CKV2_AWS_62

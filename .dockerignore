@@ -1,6 +1,12 @@
-# Only what the image needs: the lockfile and the code.
+# Only what the images need: the lockfile, the code and the dbt project.
 *
 !pyproject.toml
 !uv.lock
 !src/
+!dbt/
 **/__pycache__
+# dbt's own output, from runs on the laptop.
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml

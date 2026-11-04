@@ -1,0 +1,164 @@
+{
+  "Comment": "One day: every zone's prices from ENTSO-E into parsed/, then dbt. EventBridge Scheduler starts it daily; `make run DATE=YYYY-MM-DD` starts it for one day by hand.",
+  "QueryLanguage": "JSONata",
+  "TimeoutSeconds": 14400,
+  "StartAt": "Pick the day",
+  "States": {
+    "Pick the day": {
+      "Type": "Pass",
+      "Comment": "The date given; otherwise the UTC day the schedule fired; otherwise today in UTC.",
+      "Output": {
+        "logical_date": "{% $exists($states.input.logical_date) ? $states.input.logical_date : $substring($exists($states.input.scheduled_time) ? $states.input.scheduled_time : $states.context.Execution.StartTime, 0, 10) %}"
+      },
+      "Next": "Every zone"
+    },
+    "Every zone": {
+      "Type": "Map",
+      "Comment": "The zones run side by side. A zone that fails doesn't stop the others: it's caught, the rest carry on into dbt, and the run fails at the end, naming it.",
+      "Items": ${zones},
+      "ItemSelector": {
+        "zone": "{% $states.context.Map.Item.Value.zone %}",
+        "eic": "{% $states.context.Map.Item.Value.eic %}",
+        "logical_date": "{% $states.input.logical_date %}"
+      },
+      "MaxConcurrency": 4,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "Extract",
+        "States": {
+          "Extract": {
+            "Type": "Task",
+            "Comment": "ENTSO-E -> landing/. Not published yet: wait 20, 40 and 80 minutes. A server error that outlasted the function's own retries: twice more, minutes apart.",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+              "FunctionName": "${extract}",
+              "Payload": "{% $states.input %}"
+            },
+            "Output": "{% $states.result.Payload %}",
+            "Retry": [
+              {
+                "ErrorEquals": ["NoMatchingDataError"],
+                "IntervalSeconds": 1200,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": ["TransientSourceError", "Sandbox.Timedout"],
+                "IntervalSeconds": 300,
+                "MaxAttempts": 2,
+                "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException"
+                ],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 4,
+                "BackoffRate": 2,
+                "JitterStrategy": "FULL"
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "Output": "{% {'zone': $states.input.zone, 'logical_date': $states.input.logical_date, 'failed_in': 'extract', 'error': $states.errorOutput.Error, 'cause': $substring($states.errorOutput.Cause, 0, 500)} %}",
+                "Next": "Zone failed"
+              }
+            ],
+            "Next": "Parse"
+          },
+          "Parse": {
+            "Type": "Task",
+            "Comment": "landing/ -> parsed/, the file extract just landed.",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+              "FunctionName": "${parse}",
+              "Payload": "{% $states.input %}"
+            },
+            "Output": "{% $states.result.Payload %}",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException",
+                  "Sandbox.Timedout"
+                ],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 4,
+                "BackoffRate": 2,
+                "JitterStrategy": "FULL"
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "Output": "{% {'zone': $states.input.zone, 'logical_date': $states.input.logical_date, 'failed_in': 'parse', 'error': $states.errorOutput.Error, 'cause': $substring($states.errorOutput.Cause, 0, 500)} %}",
+                "Next": "Zone failed"
+              }
+            ],
+            "End": true
+          },
+          "Zone failed": {
+            "Type": "Pass",
+            "End": true
+          }
+        }
+      },
+      "Assign": {
+        "logical_date": "{% $states.input.logical_date %}",
+        "deliveries": "{% $states.result %}"
+      },
+      "Next": "Transform"
+    },
+    "Transform": {
+      "Type": "Task",
+      "Comment": "dbt build. It works out which days received data, so it runs even if a zone failed: the others still reach the marts.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${transform}",
+        "Payload": {}
+      },
+      "Output": "{% {'logical_date': $logical_date, 'deliveries': $deliveries, 'dbt': $states.result.Payload} %}",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "Did every zone arrive?"
+    },
+    "Did every zone arrive?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $count($deliveries[$exists(failed_in)]) > 0 %}",
+          "Next": "Some zones failed"
+        }
+      ],
+      "Default": "Done"
+    },
+    "Some zones failed": {
+      "Type": "Fail",
+      "Error": "ZonesFailed",
+      "Cause": "{% $join($deliveries[$exists(failed_in)].(zone & ' ' & logical_date & ': ' & error & ' in ' & failed_in), '; ') %}"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

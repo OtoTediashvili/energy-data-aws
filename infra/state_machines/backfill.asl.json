@@ -1,0 +1,127 @@
+{
+  "Comment": "Parse every file in landing/ again, then dbt. For history copied into landing/ (`make backfill`), or after a parser fix. Nothing is downloaded from ENTSO-E.",
+  "QueryLanguage": "JSONata",
+  "TimeoutSeconds": 14400,
+  "StartAt": "Zones",
+  "States": {
+    "Zones": {
+      "Type": "Pass",
+      "Comment": "Each zone's EIC, which parse checks the file against.",
+      "Output": {
+        "eic_by_zone": ${eic_by_zone}
+      },
+      "Next": "Every landed file"
+    },
+    "Every landed file": {
+      "Type": "Map",
+      "Comment": "One small child run per file, five at a time: a new account may run only 10 functions at once.",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:listObjectsV2",
+        "Arguments": {
+          "Bucket": "${bucket}",
+          "Prefix": "landing/dataset=prices/"
+        }
+      },
+      "ItemSelector": {
+        "key": "{% $states.context.Map.Item.Value.Key %}",
+        "zone": "{% $substringAfter($split($states.context.Map.Item.Value.Key, '/')[2], 'zone=') %}",
+        "eic": "{% $lookup($states.input.eic_by_zone, $substringAfter($split($states.context.Map.Item.Value.Key, '/')[2], 'zone=')) %}",
+        "logical_date": "{% $substring($substringBefore($split($states.context.Map.Item.Value.Key, '/')[-1], '.xml'), -10) %}"
+      },
+      "MaxConcurrency": 5,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "EXPRESS"
+        },
+        "StartAt": "Parse",
+        "States": {
+          "Parse": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+              "FunctionName": "${parse}",
+              "Payload": "{% $states.input %}"
+            },
+            "Output": "{% {'rows': $states.result.Payload.rows} %}",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException",
+                  "Sandbox.Timedout"
+                ],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 4,
+                "BackoffRate": 2,
+                "JitterStrategy": "FULL"
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "Output": "{% {'key': $states.input.key, 'error': $states.errorOutput.Error} %}",
+                "Next": "File failed"
+              }
+            ],
+            "End": true
+          },
+          "File failed": {
+            "Type": "Pass",
+            "End": true
+          }
+        }
+      },
+      "Assign": {
+        "files": "{% $count($states.result) %}",
+        "failures": "{% $states.result[$exists(error)] %}"
+      },
+      "Next": "Transform"
+    },
+    "Transform": {
+      "Type": "Task",
+      "Comment": "dbt build: every re-parsed day is newer than the marts, so all of them are merged again.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${transform}",
+        "Payload": {}
+      },
+      "Output": "{% {'files': $files, 'failed': $count($failures), 'dbt': $states.result.Payload} %}",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "Did every file parse?"
+    },
+    "Did every file parse?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $count($failures) > 0 %}",
+          "Next": "Some files failed"
+        }
+      ],
+      "Default": "Done"
+    },
+    "Some files failed": {
+      "Type": "Fail",
+      "Error": "FilesFailed",
+      "Cause": "{% $count($failures) & ' of ' & $files & ' files failed, first ones: ' & $join($failures[[0..9]].(key & ' (' & error & ')'), '; ') %}"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

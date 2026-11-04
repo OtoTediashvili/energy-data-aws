@@ -29,10 +29,12 @@ dev = [
     # the same package covers S3 and SSM, so mypy sees one set of stubs.
     "boto3-stubs[s3,ssm]>=1.40",
     "types-defusedxml>=0.7",
+    # The state machines' JSONata expressions, evaluated in the tests.
+    "jsonata-python>=0.6",
 ]
 
-# dbt and its Athena adapter: on your laptop now (`make dbt-build`), in the
-# transform function's image later. Never in the ingestion functions.
+# dbt and its Athena adapter: on your laptop (`make dbt-build`) and in the
+# transform function's image. Never in the ingestion functions' image.
 dbt = [
     "dbt-athena>=1.11,<2",
     "dbt-core>=1.11,<2",
@@ -68,8 +70,8 @@ files = ["src", "tests"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-# PyArrow ships no type information.
-module = ["pyarrow", "pyarrow.*"]
+# PyArrow and jsonata-python ship no type information.
+module = ["pyarrow", "pyarrow.*", "jsonata", "jsonata.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

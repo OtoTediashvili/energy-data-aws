@@ -1,7 +1,9 @@
 # Copy to terraform.tfvars (gitignored) and fill in.
+# Budget alerts and failed-run alerts both go here.
 alert_email = "you@example.com"
 
 # Optional, with their defaults:
 # region                  = "eu-central-1"
 # monthly_budget_usd      = 5
 # athena_scan_limit_bytes = 1073741824
+# daily_schedule          = "cron(17 14 * * ? *)"   # Brussels time
