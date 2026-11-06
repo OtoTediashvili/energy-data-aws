@@ -6,11 +6,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A newer push to a pull request cancels the older run. On main, runs queue
+# instead: a plan stopped halfway could leave the Terraform state locked.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Read-only: this workflow checks code, it deploys nothing.
+# Read-only by default. Only the plan job, on main, may ask GitHub for the
+# token that AWS swaps for credentials.
 permissions:
   contents: read
 
@@ -153,3 +156,58 @@ jobs:
 
       - name: Scan full git history
         run: gitleaks git . --redact --verbose --no-banner
+
+  # After every check has passed on main: push the images ECR doesn't have
+  # yet, and show what `terraform apply` would change. The role it assumes,
+  # github-energy-plan (infra/bootstrap/ci.tf), can read the main stack but
+  # not change it. The repository is public, and so are these logs: the
+  # account ID and the alert email are secrets, which GitHub masks.
+  plan:
+    name: Push images, plan
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [python, image, terraform, scan, shell, secrets]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # the OIDC token AWS checks; no stored key
+    env:
+      AWS_REGION: eu-central-1
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+    defaults:
+      run:
+        shell: bash # -eo pipefail, so a failed plan isn't hidden by tee
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: AWS credentials for an hour, from GitHub's token
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-energy-plan
+          role-session-name: plan-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      # Tagged by content: a commit that doesn't change the images pushes
+      # nothing, and one that does is pushed before the plan needs it.
+      - name: Push the images ECR doesn't have
+        run: scripts/image.sh push
+
+      - name: Terraform init
+        run: |
+          terraform -chdir=infra init -input=false \
+            -backend-config="bucket=energy-tfstate-${{ secrets.AWS_ACCOUNT_ID }}" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: Terraform plan
+        run: |
+          terraform -chdir=infra plan -input=false -no-color -lock-timeout=5m \
+            -var="region=${AWS_REGION}" -var="image_tag=$(scripts/image.sh tag)" | tee plan.txt
+          {
+            echo "### Terraform plan"
+            grep -E '^(Plan:|No changes\.)' plan.txt || echo "No summary line found; see the log."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -5,8 +5,10 @@ variable "region" {
 }
 
 variable "alert_email" {
-  description = "Where budget alerts and failed-run alerts go. Kept in terraform.tfvars, which is gitignored."
+  description = "Where budget alerts and failed-run alerts go. Kept in terraform.tfvars (gitignored) and, for CI, in the ALERT_EMAIL secret."
   type        = string
+  # Plans are printed in public CI logs: show "(sensitive value)" instead.
+  sensitive = true
 
   validation {
     condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alert_email))

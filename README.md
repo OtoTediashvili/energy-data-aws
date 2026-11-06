@@ -35,7 +35,7 @@ flowchart LR
 | 1 | Foundation: state bucket, data lake bucket, Glue databases, Athena workgroup with a scan limit, budget alert | done |
 | 2 | Ingestion: extract and parse as Lambda functions, the ENTSO-E token from SSM, the raw table | done |
 | 3 | dbt on Athena: staging, the zone dimension and daily prices as Iceberg tables, with the tests | done |
-| 4 | Orchestration: Step Functions on a schedule, dbt in Lambda, failure alerts, backfill from project 1's landing zone | ready to deploy |
+| 4 | Orchestration: Step Functions on a schedule, dbt in Lambda, failure alerts, backfill from project 1's landing zone | done |
 | 5 | CI/CD: GitHub Actions deploys through OIDC, no stored keys | |
 | 6 | What it costs, what broke, what I'd change | |
 
