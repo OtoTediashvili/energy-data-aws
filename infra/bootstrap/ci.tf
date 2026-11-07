@@ -18,10 +18,15 @@
 # apply role manages roles named energy-*, and must not be able to manage
 # itself.
 
-variable "github_repository" {
-  description = "owner/name of the repository whose workflows may plan and deploy."
+# GitHub's token names the repository with its owner's and its own permanent
+# IDs, not only their names ("immutable subject"): a repository deleted and
+# created again under the same name gets a new ID, and so no access. The
+# prefix comes from:
+#   gh api repos/OtoTediashvili/energy-data-aws/actions/oidc/customization/sub
+variable "github_subject_prefix" {
+  description = "The start of the token's subject claim for the repository whose workflows may plan and deploy."
   type        = string
-  default     = "OtoTediashvili/energy-data-aws"
+  default     = "repo:OtoTediashvili@142446890/energy-data-aws@1441335391"
 }
 
 variable "deploy_environment" {
@@ -38,12 +43,12 @@ locals {
   # is identified by the environment instead of the branch.
   ci_roles = {
     plan = {
-      subject     = "repo:${var.github_repository}:ref:refs/heads/main"
+      subject     = "${var.github_subject_prefix}:ref:refs/heads/main"
       description = "GitHub Actions on main: push the images, plan the main stack. Changes nothing else."
       policy      = data.aws_iam_policy_document.ci_plan.json
     }
     apply = {
-      subject     = "repo:${var.github_repository}:environment:${var.deploy_environment}"
+      subject     = "${var.github_subject_prefix}:environment:${var.deploy_environment}"
       description = "GitHub Actions in the approved environment: apply the main stack, and only it."
       policy      = data.aws_iam_policy_document.ci_apply.json
     }
