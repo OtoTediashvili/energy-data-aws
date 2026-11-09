@@ -257,6 +257,13 @@ data "aws_iam_policy_document" "ci_plan" {
     actions   = ["budgets:ViewBudget", "budgets:ListTagsForResource"]
     resources = [local.budgets]
   }
+
+  # Cost allocation tags are account settings, with no resource of their own.
+  statement {
+    sid       = "ReadTheCostAllocationTags"
+    actions   = ["ce:ListCostAllocationTags"]
+    resources = ["*"]
+  }
 }
 
 # --------------------------------------------------------------- apply
@@ -446,6 +453,12 @@ data "aws_iam_policy_document" "ci_apply" {
     sid       = "ManageTheBudget"
     actions   = ["budgets:ModifyBudget", "budgets:TagResource", "budgets:UntagResource"]
     resources = [local.budgets]
+  }
+
+  statement {
+    sid       = "ActivateTheCostAllocationTag"
+    actions   = ["ce:UpdateCostAllocationTagsStatus"]
+    resources = ["*"]
   }
 }
 

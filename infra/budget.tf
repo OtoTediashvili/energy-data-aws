@@ -40,3 +40,12 @@ resource "aws_budgets_budget" "monthly" {
     subscriber_email_addresses = [var.alert_email]
   }
 }
+
+# Billing ignores resource tags until one is activated as a cost allocation
+# tag. With this one, Cost Explorer can show what this project costs on its
+# own (default_tags in providers.tf put it on every resource). Destroying it
+# only deactivates the tag.
+resource "aws_ce_cost_allocation_tag" "project" {
+  tag_key = "project"
+  status  = "Active"
+}
