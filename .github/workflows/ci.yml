@@ -6,14 +6,15 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A newer push to a pull request cancels the older run. On main, runs queue
-# instead: a plan stopped halfway could leave the Terraform state locked.
+# A newer push to a pull request cancels the older run. On main, every run
+# gets its own group, so the checks never wait; only the plan and apply jobs
+# take turns (group "terraform" below).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Read-only by default. Only the plan job, on main, may ask GitHub for the
-# token that AWS swaps for credentials.
+# Read-only by default. Only the plan and apply jobs, on main, may ask GitHub
+# for the token that AWS swaps for credentials.
 permissions:
   contents: read
 
@@ -162,11 +163,22 @@ jobs:
   # github-energy-plan (infra/bootstrap/ci.tf), can read the main stack but
   # not change it. The repository is public, and so are these logs: the
   # account ID and the alert email are secrets, which GitHub masks.
+  #
+  # Plan and apply share a concurrency group and never cancel each other: a
+  # job stopped halfway could leave the state locked. While an apply waits for
+  # my approval, the next run's plan waits too (its plan would be out of date
+  # after the apply anyway). Rejecting the apply lets it go on.
   plan:
     name: Push images, plan
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: [python, image, terraform, scan, shell, secrets]
     runs-on: ubuntu-24.04
+    concurrency:
+      group: terraform
+      cancel-in-progress: false
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+      fingerprint: ${{ steps.plan.outputs.fingerprint }}
     permissions:
       contents: read
       id-token: write # the OIDC token AWS checks; no stored key
@@ -204,10 +216,62 @@ jobs:
             -backend-config="region=${AWS_REGION}"
 
       - name: Terraform plan
+        id: plan
+        run: scripts/ci_plan.sh
+
+  # Only when the plan changes something, and only after I approve it: the
+  # environment `production` requires my review, and github-energy-apply
+  # trusts no other job. It plans again (see scripts/ci_plan.sh for why) and
+  # stops unless that plan changes the same resources in the same ways.
+  apply:
+    name: Apply (after my approval)
+    if: needs.plan.outputs.changes == 'true'
+    needs: plan
+    runs-on: ubuntu-24.04
+    environment: production
+    concurrency:
+      group: terraform
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # the OIDC token AWS checks; no stored key
+    env:
+      AWS_REGION: eu-central-1
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: AWS credentials for an hour, from GitHub's token
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-energy-apply
+          role-session-name: apply-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Terraform init
         run: |
-          terraform -chdir=infra plan -input=false -no-color -lock-timeout=5m \
-            -var="region=${AWS_REGION}" -var="image_tag=$(scripts/image.sh tag)" | tee plan.txt
-          {
-            echo "### Terraform plan"
-            grep -E '^(Plan:|No changes\.)' plan.txt || echo "No summary line found; see the log."
-          } >> "$GITHUB_STEP_SUMMARY"
+          terraform -chdir=infra init -input=false \
+            -backend-config="bucket=energy-tfstate-${{ secrets.AWS_ACCOUNT_ID }}" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: Terraform plan, again
+        id: plan
+        run: scripts/ci_plan.sh
+
+      - name: Stop unless this is the plan I approved
+        if: steps.plan.outputs.fingerprint != needs.plan.outputs.fingerprint
+        run: |
+          echo "::error::This plan changes other resources than the approved one. Nothing was applied: run the workflow again."
+          exit 1
+
+      - name: Terraform apply
+        run: terraform -chdir=infra apply -input=false -no-color -lock-timeout=5m tfplan
