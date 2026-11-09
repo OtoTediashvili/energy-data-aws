@@ -23,8 +23,9 @@ resource "aws_cloudwatch_log_group" "transform" {
 }
 
 resource "aws_iam_role" "transform" {
-  name        = "energy-transform"
-  description = "What the dbt function may do: queries in the energy workgroup, the tables dbt builds."
+  name                 = "energy-transform"
+  description          = "What the dbt function may do: queries in the energy workgroup, the tables dbt builds."
+  permissions_boundary = local.workload_boundary
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{

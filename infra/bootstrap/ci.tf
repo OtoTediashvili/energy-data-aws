@@ -281,18 +281,32 @@ data "aws_iam_policy_document" "ci_apply" {
   statement {
     sid = "ManageTheWorkloadRoles"
     actions = [
-      "iam:CreateRole",
       "iam:DeleteRole",
       "iam:UpdateRole",
       "iam:UpdateRoleDescription",
       "iam:UpdateAssumeRolePolicy",
       "iam:TagRole",
       "iam:UntagRole",
-      "iam:PutRolePolicy",
       "iam:DeleteRolePolicy",
       "iam:ListInstanceProfilesForRole",
     ]
     resources = [local.workload_roles]
+  }
+
+  # Creating a role, writing its policy, or setting its boundary only with the
+  # workload boundary (boundary.tf) on it, so no role this one writes can do
+  # more than the boundary allows. Taking a boundary off
+  # (iam:DeleteRolePermissionsBoundary) isn't allowed at all.
+  statement {
+    sid       = "GrantOnlyWithinTheBoundary"
+    actions   = ["iam:CreateRole", "iam:PutRolePolicy", "iam:PutRolePermissionsBoundary"]
+    resources = [local.workload_roles]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PermissionsBoundary"
+      values   = [aws_iam_policy.workload_boundary.arn]
+    }
   }
 
   # Each workload role goes only to the service it was written for.

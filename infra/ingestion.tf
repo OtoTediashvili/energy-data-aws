@@ -45,8 +45,9 @@ resource "aws_cloudwatch_log_group" "function" {
 }
 
 resource "aws_iam_role" "ingest" {
-  name        = "energy-ingest"
-  description = "What the extract and parse functions may do, and nothing else."
+  name                 = "energy-ingest"
+  description          = "What the extract and parse functions may do, and nothing else."
+  permissions_boundary = local.workload_boundary
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{

@@ -48,8 +48,9 @@ resource "aws_cloudwatch_log_group" "state_machine" {
 }
 
 resource "aws_iam_role" "orchestrate" {
-  name        = "energy-orchestrate"
-  description = "What the state machines may do: run the three functions, list landing/, log."
+  name                 = "energy-orchestrate"
+  description          = "What the state machines may do: run the three functions, list landing/, log."
+  permissions_boundary = local.workload_boundary
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -155,8 +156,9 @@ resource "aws_sfn_state_machine" "pipeline" {
 # ------------------------------------------------------------- schedule
 
 resource "aws_iam_role" "schedule" {
-  name        = "energy-schedule"
-  description = "Lets EventBridge Scheduler start the daily run, and nothing else."
+  name                 = "energy-schedule"
+  description          = "Lets EventBridge Scheduler start the daily run, and nothing else."
+  permissions_boundary = local.workload_boundary
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{

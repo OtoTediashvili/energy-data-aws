@@ -36,8 +36,8 @@ flowchart LR
 | 2 | Ingestion: extract and parse as Lambda functions, the ENTSO-E token from SSM, the raw table | done |
 | 3 | dbt on Athena: staging, the zone dimension and daily prices as Iceberg tables, with the tests | done |
 | 4 | Orchestration: Step Functions on a schedule, dbt in Lambda, failure alerts, backfill from project 1's landing zone | done |
-| 5 | CI/CD: GitHub Actions deploys through OIDC, no stored keys | |
-| 6 | What it costs, what broke, what I'd change | |
+| 5 | CI/CD: GitHub Actions deploys through OIDC, no stored keys, each change approved | done |
+| 6 | What it costs, what broke, what I'd change | costs still being measured |
 
 ## Ingestion
 
@@ -133,6 +133,41 @@ function, which runs `dbt build` in Lambda.
   scheduled run picks, the report of a failed zone, the zone and date of a
   landed key. `make sfn-check` runs AWS's own validator on them.
 
+## Deployment
+
+GitHub Actions checks every push. On `main` it also plans, and a change to
+AWS waits until I approve it.
+
+| Job | Runs | May do on AWS |
+|---|---|---|
+| Lint, types, tests · Images build · Terraform validate · checkov · shellcheck · secret scan | every push and pull request | nothing |
+| Push images, plan | on `main`, once every check has passed | push the images, read the stack (`github-energy-plan`) |
+| Apply | only when the plan changes something, and only after I approve it | change this project's resources (`github-energy-apply`) |
+
+- **No stored keys.** For each job, GitHub signs a short-lived token that
+  names the repository and the branch or environment. AWS checks it and
+  hands out an hour of one role's credentials. The roles trust GitHub's
+  immutable subject (owner and repository IDs, not names), so a repository
+  deleted and created again under the same name gets nothing.
+- **A push alone changes nothing.** The plan role reads the stack and pushes
+  images. The apply role trusts only jobs in the GitHub environment
+  `production`, which waits for my approval.
+- **What I approve is what runs.** A plan file holds every value in plain
+  text, and a public repository's run files are public, so the apply job
+  doesn't reuse it. It plans again and applies only if the same resources
+  change in the same ways (`scripts/ci_plan.sh`).
+- **CI can't widen its own rights.** The CI roles and the boundary below
+  live in a separate stack, `infra/bootstrap/`, which only the laptop
+  applies.
+- **A ceiling for every role CI writes.** The apply role creates the
+  pipeline's roles, so it could write any policy into them. It may only
+  create or change a role that carries the permissions boundary
+  `energy-workload-boundary`, and may not remove it. Whatever a role's own
+  policy says, it can't reach past this project's resources or into IAM.
+- **Public logs, private values.** The account ID and the alert email are
+  GitHub secrets, which GitHub masks, and the email is a sensitive Terraform
+  variable, so plans don't print it.
+
 ## Setup
 
 Once per machine and account. You need the AWS CLI 2.32 or newer, Terraform
@@ -170,7 +205,7 @@ Once per machine and account. You need the AWS CLI 2.32 or newer, Terraform
 
    ```bash
    make install        # Python environment and git hooks
-   make bootstrap      # the Terraform state bucket and the image registry
+   make bootstrap      # state bucket, image registry, CI roles, permissions boundary
    cp infra/terraform.tfvars.example infra/terraform.tfvars   # your email for alerts
    make image          # build both images and push them (Docker running)
    make sfn-check      # AWS's validator on the state machines
@@ -184,10 +219,25 @@ Once per machine and account. You need the AWS CLI 2.32 or newer, Terraform
 
    From then on the schedule runs it every afternoon.
 
+5. **Deploying from GitHub** (optional). In your copy of the repository:
+   - Set `github_subject_prefix` in `infra/bootstrap/ci.tf` to the start of
+     your repository's token subject (see what broke, below). `gh api
+     repos/OWNER/REPO/actions/oidc/customization/sub` shows its format.
+     Run `make bootstrap` again.
+   - Add two secrets, `AWS_ACCOUNT_ID` and `ALERT_EMAIL`, with
+     `gh secret set NAME`, typing the value at its prompt.
+   - Create the environment `production` (Settings, Environments), with
+     yourself as required reviewer and `main` as its only branch. Do it
+     before the first push: GitHub creates an environment a workflow names
+     if it doesn't exist, without any protection.
+
 ## Guard rails
 
-- **No long-lived keys.** Your laptop uses `aws login`; GitHub Actions will
-  use OIDC. There is no access key to leak.
+- **No long-lived keys.** The laptop uses `aws login`; GitHub Actions uses
+  OIDC. There is no access key to leak.
+- **No change without approval.** CI applies only after I approve the plan,
+  and every role it writes stays inside a permissions boundary
+  ([Deployment](#deployment)).
 - **The token never touches the repo.** It lives in SSM as a SecureString;
   the extract function reads it at run time.
 - **A failed run emails you,** with the error and a link to the run.
@@ -199,13 +249,83 @@ Once per machine and account. You need the AWS CLI 2.32 or newer, Terraform
 - **checkov** checks the Terraform in CI; the few checks skipped are
   explained in [.checkov.yaml](.checkov.yaml).
 
+## What it costs
+
+Measured from Cost Explorer once the schedule has run for a few weeks.
+Every resource carries the tag `project = energy-data-aws`, active as a cost
+allocation tag since 9 November 2026, so the project's cost can be read on
+its own.
+
+## What broke
+
+Each of these failed once. The fixes are in place, most with a test or a
+comment where the mistake would happen again.
+
+- **dbt in Lambda.** Lambda has no `/dev/shm`, so the multiprocessing locks
+  dbt creates fail with "[Errno 38] Function not implemented", although dbt
+  runs in threads. The function swaps them for thread locks before dbt
+  starts. The image is read-only too, so dbt writes only under `/tmp`.
+- **A folder name.** The dbt project first went to `/var/task/dbt`, which is
+  where the dbt package itself is installed. It lives in
+  `/var/task/dbt_project` now.
+- **Image format.** Lambda rejects the image indexes Docker builds by
+  default, with build provenance attached. The images are built with
+  `--provenance=false`.
+- **Timestamp precision.** Iceberg tables need `timestamp(6)`. dbt's unit
+  tests build Hive scratch tables, which only take `timestamp(3)`. One
+  macro, `table_timestamp`, picks the right one.
+- **"Nothing" in JSONata.** A filter that matches nothing returns undefined,
+  not an empty list, and Step Functions fails a run that tries to store
+  undefined. The first backfill parsed all 1,574 files and then failed,
+  because none had failed. The tests now refuse undefined, as AWS does.
+- **An escaped placeholder.** `jsonencode()` turns `<` and `>` into
+  `<` and `>`, so the scheduler never filled in its
+  `<aws.scheduler.scheduled-time>` placeholder. That input is a literal
+  string now.
+- **Ten functions at once.** A new account may run only ten Lambda
+  functions at the same time. The backfill parses five files at a time,
+  and no function reserves concurrency.
+- **The OIDC subject.** This repository's tokens name it by IDs
+  (`repo:OtoTediashvili@142446890/energy-data-aws@1441335391:…`), not by
+  name. A trust policy with the plain name failed with "Not authorized to
+  perform sts:AssumeRoleWithWebIdentity".
+- **An email in a public log.** Marking a Terraform variable `sensitive`
+  hides its new value, not the old value already in the state. The first
+  CI plan printed the alert email from the state until an apply from the
+  laptop marked it there. The log was deleted.
+- **A secret that didn't match.** The `ALERT_EMAIL` secret didn't exactly
+  match the address in use, so CI planned to replace the email
+  subscription, and GitHub didn't mask the address, since it masks exact
+  matches only. The CI plan disagreeing with the laptop's is what gave it
+  away.
+
+## What I'd change at a bigger scale
+
+- **Accounts per environment.** One account, and CI applies straight to
+  it. A team would have development and production accounts in AWS
+  Organizations, with service control policies as the ceiling the
+  permissions boundary is here.
+- **Plans on pull requests.** The plan role trusts only `main`, so a pull
+  request is checked but not planned. With more people, each pull request
+  from the repository itself (never a fork) would get its plan as a
+  comment.
+- **Alerts on silence, not only on failure.** A run that fails sends an
+  email. A run that never starts sends nothing. A dbt source freshness
+  check, or an alarm when no run succeeds in a day, would catch that.
+- **Table maintenance.** Every daily merge adds an Iceberg snapshot and a
+  few small files. At this size that costs nothing. At a larger one,
+  Athena's `OPTIMIZE` and `VACUUM` would run on a schedule.
+- **dbt outside Lambda.** Lambda stops a function after 15 minutes. A build
+  that could outgrow that would run the same image as a Fargate task,
+  started by the same state machine.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `make login` | Short-lived credentials for the `energy` profile |
 | `make install` / `check` | Python environment; lint, types and tests, as CI runs them |
-| `make bootstrap` | The Terraform state bucket and the image registry |
+| `make bootstrap` | The Terraform state bucket, the image registry, the CI roles and the permissions boundary |
 | `make image` | Build and push the two images, if ECR doesn't have them yet |
 | `make sfn-check` | AWS's own validator on the state machine definitions |
 | `make init` / `plan` / `apply` | Terraform, with the plan saved and applied exactly as shown |
